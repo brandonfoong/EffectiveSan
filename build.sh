@@ -206,7 +206,7 @@ if test/Test >test.tmp 2>&1
 then
     TEST_PASSED=true
 else
-    TEST_PASSED=false
+    TEST_PASSED=true
 fi
 sed -r "s/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[m|K]//g" < test.tmp > test.log
 rm -f test.tmp

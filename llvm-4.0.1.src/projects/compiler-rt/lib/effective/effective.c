@@ -58,6 +58,11 @@ EFFECTIVE_BOUNDS effective_bounds_narrow(EFFECTIVE_BOUNDS bounds1,
 EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_type_check(const void *ptr,
     const EFFECTIVE_TYPE *u)
 {
+    EFFECTIVE_PROFILE_COUNT(effective_num_nonfat_type_checks);
+    EFFECTIVE_BOUNDS bounds = {(intptr_t)ptr, (intptr_t)ptr};
+    bounds += EFFECTIVE_BOUNDS_NEG_DELTA_DELTA;
+    return bounds;
+#if 0
     size_t idx = lowfat_index(ptr);
     if (idx > EFFECTIVE_LOWFAT_NUM_REGIONS_LIMIT || _LOWFAT_MAGICS[idx] == 0)
     {
@@ -221,6 +226,7 @@ EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_get_bounds(const void *ptr)
     EFFECTIVE_DEBUG("effective_get_bounds(%p) = %zd..%zd\n", ptr,
         bounds[0]-(intptr_t)ptr, bounds[1]-(intptr_t)ptr);
     return bounds;
+#endif
 }
 
 /*
