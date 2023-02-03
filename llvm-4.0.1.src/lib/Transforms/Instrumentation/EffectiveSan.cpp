@@ -110,6 +110,9 @@ extern "C"
 #define VPTR_TYPE_TAG                   "EFFECTIVE_VPTR_TYPE_"
 #define LAYOUT_TAG                      "EFFECTIVE_LAYOUT_"
 
+// For inline bounds checks
+#define EFFECTIVE_DELTA                 (16 * ((int64_t)1 << 30))   // 16GB
+
 /*
  * Fool-proof "leading zero count" implementation.  Also works for "0".
  */
@@ -292,6 +295,7 @@ static llvm::DIType *Int32Ty         = nullptr;
 static llvm::DIType *Int64Ty         = nullptr;
 static llvm::DIType *Int128Ty        = nullptr;
 static llvm::DIType *Int8PtrTy       = nullptr;
+static llvm::Constant *NegDeltaDelta = nullptr;
 
 static llvm::Module *Module = nullptr;  // Used by normalizePointerType()
                                         // (not ideal but too messy to fix).
@@ -4427,6 +4431,9 @@ struct EffectiveSan : public llvm::ModulePass
         BoundsNonFat = llvm::ConstantVector::get({
             llvm::ConstantInt::get(llvm::Type::getInt64Ty(Cxt), 0),
             llvm::ConstantInt::get(llvm::Type::getInt64Ty(Cxt), INTPTR_MAX)});
+        NegDeltaDelta = llvm::ConstantVector::get({
+            llvm::ConstantInt::get(llvm::Type::getInt64Ty(Cxt), -EFFECTIVE_DELTA),
+            llvm::ConstantInt::get(llvm::Type::getInt64Ty(Cxt), EFFECTIVE_DELTA)});
 
         /*
          * Main instrumentation loop:
