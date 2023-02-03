@@ -110,9 +110,6 @@ extern "C"
 #define VPTR_TYPE_TAG                   "EFFECTIVE_VPTR_TYPE_"
 #define LAYOUT_TAG                      "EFFECTIVE_LAYOUT_"
 
-// For inline bounds checks
-#define EFFECTIVE_DELTA                 (16 * ((int64_t)1 << 30))   // 16GB
-
 /*
  * Fool-proof "leading zero count" implementation.  Also works for "0".
  */
@@ -2690,10 +2687,24 @@ static llvm::Value *instrumentTypeCheck(llvm::Module &M, llvm::Function &F,
     }
     else
     {
+        // Return [ptr, ptr] + [-delta, +delta] inline
+        llvm::Type *PtrVectorType = llvm::VectorType::get(builder.getInt8PtrTy(), 2);
+        llvm::Value *PtrVector = llvm::UndefValue::get(PtrVectorType);
+        llvm::InsertElementInst *PtrVector0 = llvm::InsertElementInst::Create(
+            PtrVector, Ptr1,
+            llvm::ConstantInt::get(builder.getInt64Ty(), 0));
+        llvm::InsertElementInst *PtrVector1 = llvm::InsertElementInst::Create(
+            PtrVector0, Ptr1,
+            llvm::ConstantInt::get(builder.getInt64Ty(), 1));
+        builder.Insert(PtrVector0);
+        builder.Insert(PtrVector1);
+        Bounds = builder.CreateAdd(PtrVector1, NegDeltaDelta);
+#if 0
         llvm::Constant *TypeCheck = M.getOrInsertFunction(
             "effective_type_check", BoundsTy, builder.getInt8PtrTy(),
             TypeTy->getPointerTo(), nullptr);
         Bounds = builder.CreateCall(TypeCheck, {Ptr1, Meta});
+#endif
     }
     CheckEntry Entry = {Bounds, nullptr, 0};
     cInfo.insert(std::make_pair(Ptr, Entry));
