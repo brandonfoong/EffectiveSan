@@ -188,6 +188,7 @@ match_found: {}
     bounds = ptrs + EFFECTIVE_BOUNDS_NEG_DELTA_DELTA;
     EFFECTIVE_DEBUG("%zd..%zd (type error)\n", bounds[0], bounds[1]);
     return bounds;
+#endif
 }
 
 /*
@@ -226,7 +227,6 @@ EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_get_bounds(const void *ptr)
     EFFECTIVE_DEBUG("effective_get_bounds(%p) = %zd..%zd\n", ptr,
         bounds[0]-(intptr_t)ptr, bounds[1]-(intptr_t)ptr);
     return bounds;
-#endif
 }
 
 /*
