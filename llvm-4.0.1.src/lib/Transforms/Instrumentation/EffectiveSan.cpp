@@ -2687,18 +2687,15 @@ static llvm::Value *instrumentTypeCheck(llvm::Module &M, llvm::Function &F,
     }
     else
     {
-        // Return [ptr, ptr] + [-delta, +delta] inline
-        llvm::Type *PtrVectorType = llvm::VectorType::get(builder.getInt8PtrTy(), 2);
-        llvm::Value *PtrVector = llvm::UndefValue::get(PtrVectorType);
-        llvm::InsertElementInst *PtrVector0 = llvm::InsertElementInst::Create(
-            PtrVector, Ptr1,
-            llvm::ConstantInt::get(builder.getInt64Ty(), 0));
-        llvm::InsertElementInst *PtrVector1 = llvm::InsertElementInst::Create(
-            PtrVector0, Ptr1,
-            llvm::ConstantInt::get(builder.getInt64Ty(), 1));
-        builder.Insert(PtrVector0);
-        builder.Insert(PtrVector1);
-        Bounds = builder.CreateAdd(PtrVector1, NegDeltaDelta);
+        llvm::Value *PtrCast = builder.CreatePtrToInt(Ptr1,
+            builder.getInt64Ty());
+        llvm::Value *Undef = llvm::UndefValue::get(BoundsTy);
+        // llvm::InsertElementInst
+        Bounds = builder.CreateInsertElement(Undef, PtrCast,
+            builder.getInt32(0));
+        Bounds = builder.CreateInsertElement(Bounds, PtrCast,
+            builder.getInt32(1));
+        Bounds = builder.CreateAdd(Bounds, NegDeltaDelta);
 #if 0
         llvm::Constant *TypeCheck = M.getOrInsertFunction(
             "effective_type_check", BoundsTy, builder.getInt8PtrTy(),
