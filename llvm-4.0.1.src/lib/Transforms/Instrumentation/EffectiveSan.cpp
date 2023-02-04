@@ -4453,6 +4453,7 @@ struct EffectiveSan : public llvm::ModulePass
             /*
              * Step #3: Do bounds-check/type-check instrumentation:
              */
+#if 0
             BoundsCheckInfo bcInfo;
             findPointersForBoundsCheck(M, F, bcInfo, cInfo, Ignore);
             optimizeBoundsChecks(M, F, cInfo, bcInfo);
@@ -4463,6 +4464,7 @@ struct EffectiveSan : public llvm::ModulePass
                 for (auto &Check: Checks)
                     instrumentBoundsCheck(M, F, Check, tInfo, cInfo, bInfo);
             }
+#endif
         }
 
         /*
