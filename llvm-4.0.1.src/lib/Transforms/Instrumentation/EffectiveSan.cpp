@@ -2687,10 +2687,10 @@ static llvm::Value *instrumentTypeCheck(llvm::Module &M, llvm::Function &F,
     }
     else
     {
+        // inline [ptr, ptr] + [-delta, +delta] operation
         llvm::Value *PtrCast = builder.CreatePtrToInt(Ptr1,
             builder.getInt64Ty());
         llvm::Value *Undef = llvm::UndefValue::get(BoundsTy);
-        // llvm::InsertElementInst
         Bounds = builder.CreateInsertElement(Undef, PtrCast,
             builder.getInt32(0));
         Bounds = builder.CreateInsertElement(Bounds, PtrCast,
