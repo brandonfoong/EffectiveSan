@@ -238,4 +238,24 @@ extern void effective__ZdaPv(void *ptr);
  */
 extern void effective_dump(const void *ptr);
 
+/*
+ * Cache for effective_type_check
+ */
+
+#define EFFECTIVE_CACHE_SIZE        (1 << 20)
+#define EFFECTIVE_CACHE_MASK        (EFFECTIVE_CACHE_SIZE - 1)
+#define EFFECTIVE_CACHE_HASH(h1, h2)                                        \
+    ((uint64_t)__builtin_ia32_crc32di((intptr_t)(h1), (intptr_t)(h2)))
+EFFECTIVE_BOUNDS effective_cache_invalid = {0, 0};
+
+struct EFFECTIVE_CACHE_ENTRY
+{
+    bool in_use;
+    void *base;
+    EFFECTIVE_TYPE *u;
+    EFFECTIVE_BOUNDS bounds;
+};
+typedef struct EFFECTIVE_CACHE_ENTRY EFFECTIVE_CACHE_ENTRY;
+EFFECTIVE_CACHE_ENTRY effective_type_check_cache[EFFECTIVE_CACHE_SIZE];
+
 #endif      /* __EFFECTIVE_H */

@@ -72,6 +72,23 @@ EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_type_check(const void *ptr,
     }
     void *base = lowfat_base(ptr);
 
+    // Cache hit
+    uint64_t hash = EFFECTIVE_CACHE_HASH(base, u);
+    EFFECTIVE_CACHE_ENTRY *cache_entry =
+        &effective_type_check_cache[hash & EFFECTIVE_CACHE_MASK];
+    if (cache_entry->in_use && cache_entry->base == base && cache_entry->u == u) {
+        if (EFFECTIVE_UNLIKELY(cache_entry->bounds == EFFECTIVE_BOUNDS_NEG_1_0)) {
+            EFFECTIVE_BOUNDS ptrs = {(intptr_t)ptr, (intptr_t)ptr};
+            return ptrs + EFFECTIVE_BOUNDS_NEG_DELTA_DELTA;
+        }
+        return cache_entry->bounds;
+    }
+
+    // Cache miss, compute bounds manually
+    cache_entry->in_use = true;
+    cache_entry->base = base;
+    cache_entry->u = u;
+
     // Get the object meta-data and calculate the allocation bounds.
     EFFECTIVE_META *meta = (EFFECTIVE_META *)base;
     base = (void *)(meta + 1);
@@ -112,6 +129,7 @@ EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_type_check(const void *ptr,
         EFFECTIVE_DEBUG("%zd..%zd (fast path)\n", bounds[0]-(intptr_t)ptr,
             bounds[1]-(intptr_t)ptr);
         EFFECTIVE_PROFILE_COUNT(effective_num_fast_type_checks);
+        cache_entry->bounds = bounds;
         return bounds;
     }
 
@@ -135,6 +153,7 @@ match_found: {}
         EFFECTIVE_DEBUG("%zd..%zd [%p..%p] (slow path)\n",
             bounds[0]-ptrs[0], bounds[1]-ptrs[1], (void *)bounds[0],
             (void *)bounds[1]);
+        cache_entry->bounds = bounds;
         return bounds;
     }
     else if (entry->hash != EFFECTIVE_ENTRY_EMPTY_HASH)
@@ -181,6 +200,7 @@ match_found: {}
 	effective_type_error(u, t, (void *)ptrs[0], offset,
         __builtin_return_address(0));
     bounds = ptrs + EFFECTIVE_BOUNDS_NEG_DELTA_DELTA;
+    cache_entry->bounds = EFFECTIVE_BOUNDS_NEG_1_0;
     EFFECTIVE_DEBUG("%zd..%zd (type error)\n", bounds[0], bounds[1]);
     return bounds;
 }
