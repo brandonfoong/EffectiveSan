@@ -132,6 +132,22 @@ void effective_free(void *ptr)
         return;
     }
 
+    // If ptr is a lowfat heap pointer, invalidate all cache
+    // entries associated with it.
+    void *base = lowfat_base(ptr);
+    uint64_t hash = EFFECTIVE_CACHE_HASH(base, base);
+    EFFECTIVE_REGION_ENTRY *entry =
+        &effective_regions[hash & EFFECTIVE_CACHE_MASK];
+    EFFECTIVE_DEBUG("free(): ptr = %p, base = %p, entry->base = %p\n",
+        ptr, base, entry->base);
+    if (entry->base == base)
+    {
+        EFFECTIVE_DEBUG("invalidating entry = %p @ base = $%p\n", entry, base);
+        effective_cache_invalidate(entry->head);
+        entry->base = NULL;
+        entry->head = NULL;
+    }
+
     ptr = lowfat_base(ptr);
     EFFECTIVE_META *meta = (EFFECTIVE_META *)ptr;
     if (meta->type == NULL)
@@ -144,15 +160,6 @@ void effective_free(void *ptr)
         return;
     }
     meta->type = NULL;
-
-    // Invalidate cache entries
-    uint64_t hash = EFFECTIVE_CACHE_HASH(ptr, ptr);
-    EFFECTIVE_REGION_ENTRY *entry =
-        &effective_regions[hash & EFFECTIVE_CACHE_MASK];
-    EFFECTIVE_DEBUG("invalidating entry = %p\n", entry);
-    effective_cache_invalidate(entry->head);
-    entry->base = NULL;
-    entry->head = NULL;
 
     lowfat_free(ptr);
 }

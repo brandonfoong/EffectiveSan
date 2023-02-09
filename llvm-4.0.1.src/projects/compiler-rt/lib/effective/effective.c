@@ -72,33 +72,32 @@ EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_type_check(const void *ptr,
     }
     void *base = lowfat_base(ptr);
 
-    // Cache lookup
-    uint64_t hash = EFFECTIVE_CACHE_HASH(ptr, u);
-    EFFECTIVE_CACHE_ENTRY *cache_entry =
-        &effective_cache[hash & EFFECTIVE_CACHE_MASK];
-
-    // Cache hit
-    // TODO: use bit manipulation to speed this up
-    if (cache_entry->is_used && cache_entry->ptr == ptr && cache_entry->u == u)
+    // If the pointer is a lowfat-allocated heap pointer,
+    // try looking it up in the cache
+    if (lowfat_is_heap_ptr(ptr))
     {
-        EFFECTIVE_COUNT(effective_cache_hit);
-        if (EFFECTIVE_UNLIKELY(cache_entry->is_invalid))
-        {
-            // Reconstruct type information before reporting the type error
-            EFFECTIVE_META *meta = (EFFECTIVE_META *)base;
-            base = (void *)(meta + 1);
-            const EFFECTIVE_TYPE *t = meta->type;
-            size_t offset = (uint8_t *)ptr - (uint8_t *)base;
-            EFFECTIVE_BOUNDS ptrs = {(intptr_t)ptr, (intptr_t)ptr};
-            effective_type_error(u, t, (void *)ptrs[0], offset,
-                __builtin_return_address(0));
-            return ptrs + EFFECTIVE_BOUNDS_NEG_DELTA_DELTA;
-        }
-        return cache_entry->bounds;
-    }
+        uint64_t hash = EFFECTIVE_CACHE_HASH(ptr, u);
+        EFFECTIVE_CACHE_ENTRY *cache_entry =
+            &effective_cache[hash & EFFECTIVE_CACHE_MASK];
 
-    // Cache miss, compute bounds manually
-    EFFECTIVE_COUNT(effective_cache_miss);
+        // Cache hit
+        // TODO: use bit manipulation to speed this up
+        if (cache_entry->is_used
+            && cache_entry->ptr == ptr
+            && cache_entry->u == u)
+        {
+            EFFECTIVE_COUNT(effective_cache_hit);
+            if (EFFECTIVE_UNLIKELY(cache_entry->is_invalid))
+            {
+                effective_type_error(u, cache_entry->t, ptr, cache_entry->offset,
+                    __builtin_return_address(0));
+            }
+            return cache_entry->bounds;
+        }
+
+        // Cache miss, compute bounds manually
+        EFFECTIVE_COUNT(effective_cache_miss);
+    }
 
     // Get the object meta-data and calculate the allocation bounds.
     EFFECTIVE_META *meta = (EFFECTIVE_META *)base;
@@ -140,7 +139,8 @@ EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_type_check(const void *ptr,
         EFFECTIVE_DEBUG("%zd..%zd (fast path)\n", bounds[0]-(intptr_t)ptr,
             bounds[1]-(intptr_t)ptr);
         EFFECTIVE_PROFILE_COUNT(effective_num_fast_type_checks);
-        effective_cache_insert(ptr, u, /* is_invalid = */ false, bounds);
+        effective_cache_insert(ptr, u, /* is_invalid = */ false, bounds,
+            /* t = */ NULL, /* offset = */ 0);
         return bounds;
     }
 
@@ -164,8 +164,8 @@ match_found: {}
         EFFECTIVE_DEBUG("%zd..%zd [%p..%p] (slow path)\n",
             bounds[0]-ptrs[0], bounds[1]-ptrs[1], (void *)bounds[0],
             (void *)bounds[1]);
-        cache_entry->bounds = bounds;
-        effective_cache_insert(ptr, u, /* is_invalid = */ false, bounds);
+        effective_cache_insert(ptr, u, /* is_invalid = */ false, bounds,
+            /* t = */ NULL, /* offset = */ 0);
         return bounds;
     }
     else if (entry->hash != EFFECTIVE_ENTRY_EMPTY_HASH)
@@ -213,13 +213,24 @@ match_found: {}
         __builtin_return_address(0));
     bounds = ptrs + EFFECTIVE_BOUNDS_NEG_DELTA_DELTA;
     EFFECTIVE_DEBUG("%zd..%zd (type error)\n", bounds[0], bounds[1]);
-    effective_cache_insert(ptr, u, /* is_invalid = */ true, bounds);
+    effective_cache_insert(ptr, u, /* is_invalid = */ true, bounds,
+        t, offset);
     return bounds;
 }
 
 void effective_cache_insert(void *ptr, const EFFECTIVE_TYPE *u,
-    bool is_invalid, EFFECTIVE_BOUNDS bounds)
+    bool is_invalid, EFFECTIVE_BOUNDS bounds, const EFFECTIVE_TYPE *t,
+    size_t offset)
 {
+    // Much harder to keep track of stack pointers since
+    // stack deallocation is implicit.
+    // For convenience we only keep track of heap pointers.
+    // (And possibly globals...)
+    if (!lowfat_is_heap_ptr(ptr))
+    {
+        return;
+    }
+
     uint64_t hash = EFFECTIVE_CACHE_HASH(ptr, u);
     EFFECTIVE_CACHE_ENTRY *cache_entry =
         &effective_cache[hash & EFFECTIVE_CACHE_MASK];
@@ -230,9 +241,9 @@ void effective_cache_insert(void *ptr, const EFFECTIVE_TYPE *u,
 
     // If hash(base) collides with hash(base') for some previous
     // base', invalidate all entries associated with base'.
-    // Otherwise, we would have dangling entries, since we cannot
-    // invalidate them when we call free(base').
-    if (EFFECTIVE_UNLIKELY(base_entry->base != base))
+    // Otherwise, we would have dangling entries, since we can no
+    // longer invalidate them when we call free(base').
+    if (base_entry->base != base)
     {
         effective_cache_invalidate(base_entry->head);
         base_entry->base = base;
@@ -275,14 +286,17 @@ void effective_cache_insert(void *ptr, const EFFECTIVE_TYPE *u,
     cache_entry->ptr = ptr;
     cache_entry->u = u;
     cache_entry->bounds = bounds;
+    cache_entry->t = t;
+    cache_entry->offset = offset;
 
-    // Maintain the base pointer's linked list
+    // Maintain the linked list
     if (base_entry->head != NULL)
     {
         base_entry->head->prev = cache_entry;
     }
     cache_entry->prev = NULL;
     cache_entry->next = base_entry->head;
+    base_entry->base = base;
     base_entry->head = cache_entry;
 }
 

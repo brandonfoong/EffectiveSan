@@ -253,11 +253,15 @@ struct EFFECTIVE_CACHE_ENTRY
 {
     bool is_used;
     bool is_invalid;
-    void *ptr;
+    const void *ptr;
     const EFFECTIVE_TYPE *u;
     struct EFFECTIVE_CACHE_ENTRY *prev;
     struct EFFECTIVE_CACHE_ENTRY *next;
     EFFECTIVE_BOUNDS bounds;
+    // These are only used for error reporting when
+    // (ptr, u) results in a type error.
+    const EFFECTIVE_TYPE *t;
+    size_t offset;
 };
 typedef struct EFFECTIVE_CACHE_ENTRY EFFECTIVE_CACHE_ENTRY;
 EFFECTIVE_CACHE_ENTRY effective_cache[EFFECTIVE_CACHE_SIZE];
@@ -274,7 +278,8 @@ struct EFFECTIVE_REGION_ENTRY {
 typedef struct EFFECTIVE_REGION_ENTRY EFFECTIVE_REGION_ENTRY;
 EFFECTIVE_REGION_ENTRY effective_regions[EFFECTIVE_CACHE_SIZE];
 void effective_cache_insert(void *ptr, const EFFECTIVE_TYPE *u,
-    bool is_valid, EFFECTIVE_BOUNDS bounds);
+    bool is_valid, EFFECTIVE_BOUNDS bounds, const EFFECTIVE_TYPE *t,
+    size_t offset);
 void effective_cache_invalidate(EFFECTIVE_CACHE_ENTRY *entry);
 
 #endif      /* __EFFECTIVE_H */
