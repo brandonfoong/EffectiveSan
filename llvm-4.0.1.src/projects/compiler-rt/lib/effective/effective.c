@@ -72,22 +72,33 @@ EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_type_check(const void *ptr,
     }
     void *base = lowfat_base(ptr);
 
-    // Cache hit
-    uint64_t hash = EFFECTIVE_CACHE_HASH(base, u);
+    // Cache lookup
+    uint64_t hash = EFFECTIVE_CACHE_HASH(ptr, u);
     EFFECTIVE_CACHE_ENTRY *cache_entry =
-        &effective_type_check_cache[hash & EFFECTIVE_CACHE_MASK];
-    if (cache_entry->in_use && cache_entry->base == base && cache_entry->u == u) {
-        if (EFFECTIVE_UNLIKELY(cache_entry->bounds == EFFECTIVE_BOUNDS_NEG_1_0)) {
+        &effective_cache[hash & EFFECTIVE_CACHE_MASK];
+
+    // Cache hit
+    // TODO: use bit manipulation to speed this up
+    if (cache_entry->is_used && cache_entry->ptr == ptr && cache_entry->u == u)
+    {
+        EFFECTIVE_COUNT(effective_cache_hit);
+        if (EFFECTIVE_UNLIKELY(cache_entry->is_invalid))
+        {
+            // Reconstruct type information before reporting the type error
+            EFFECTIVE_META *meta = (EFFECTIVE_META *)base;
+            base = (void *)(meta + 1);
+            const EFFECTIVE_TYPE *t = meta->type;
+            size_t offset = (uint8_t *)ptr - (uint8_t *)base;
             EFFECTIVE_BOUNDS ptrs = {(intptr_t)ptr, (intptr_t)ptr};
+            effective_type_error(u, t, (void *)ptrs[0], offset,
+                __builtin_return_address(0));
             return ptrs + EFFECTIVE_BOUNDS_NEG_DELTA_DELTA;
         }
         return cache_entry->bounds;
     }
 
     // Cache miss, compute bounds manually
-    cache_entry->in_use = true;
-    cache_entry->base = base;
-    cache_entry->u = u;
+    EFFECTIVE_COUNT(effective_cache_miss);
 
     // Get the object meta-data and calculate the allocation bounds.
     EFFECTIVE_META *meta = (EFFECTIVE_META *)base;
@@ -129,7 +140,7 @@ EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_type_check(const void *ptr,
         EFFECTIVE_DEBUG("%zd..%zd (fast path)\n", bounds[0]-(intptr_t)ptr,
             bounds[1]-(intptr_t)ptr);
         EFFECTIVE_PROFILE_COUNT(effective_num_fast_type_checks);
-        cache_entry->bounds = bounds;
+        effective_cache_insert(ptr, u, /* is_invalid = */ false, bounds);
         return bounds;
     }
 
@@ -154,6 +165,7 @@ match_found: {}
             bounds[0]-ptrs[0], bounds[1]-ptrs[1], (void *)bounds[0],
             (void *)bounds[1]);
         cache_entry->bounds = bounds;
+        effective_cache_insert(ptr, u, /* is_invalid = */ false, bounds);
         return bounds;
     }
     else if (entry->hash != EFFECTIVE_ENTRY_EMPTY_HASH)
@@ -200,9 +212,96 @@ match_found: {}
 	effective_type_error(u, t, (void *)ptrs[0], offset,
         __builtin_return_address(0));
     bounds = ptrs + EFFECTIVE_BOUNDS_NEG_DELTA_DELTA;
-    cache_entry->bounds = EFFECTIVE_BOUNDS_NEG_1_0;
     EFFECTIVE_DEBUG("%zd..%zd (type error)\n", bounds[0], bounds[1]);
+    effective_cache_insert(ptr, u, /* is_invalid = */ true, bounds);
     return bounds;
+}
+
+void effective_cache_insert(void *ptr, const EFFECTIVE_TYPE *u,
+    bool is_invalid, EFFECTIVE_BOUNDS bounds)
+{
+    uint64_t hash = EFFECTIVE_CACHE_HASH(ptr, u);
+    EFFECTIVE_CACHE_ENTRY *cache_entry =
+        &effective_cache[hash & EFFECTIVE_CACHE_MASK];
+    void *base = lowfat_base(ptr);
+    uint64_t base_hash = EFFECTIVE_CACHE_HASH(base, base);
+    EFFECTIVE_REGION_ENTRY *base_entry =
+        &effective_regions[base_hash & EFFECTIVE_CACHE_MASK];
+
+    // If hash(base) collides with hash(base') for some previous
+    // base', invalidate all entries associated with base'.
+    // Otherwise, we would have dangling entries, since we cannot
+    // invalidate them when we call free(base').
+    if (EFFECTIVE_UNLIKELY(base_entry->base != base))
+    {
+        effective_cache_invalidate(base_entry->head);
+        base_entry->base = base;
+        base_entry->head = NULL;
+    }
+
+    // Populate the cache entry and construct the linked list
+    EFFECTIVE_DEBUG("inserting ptr = %p, type = %p into cache\n", ptr, u);
+
+    // If there is a hash collision with some other cache entry,
+    // remove that entry from its linked list first, before overwriting
+    // it with the new entry.
+    if (cache_entry->is_used)
+    {
+        EFFECTIVE_CACHE_ENTRY *prev = cache_entry->prev;
+        EFFECTIVE_CACHE_ENTRY *next = cache_entry->next;
+        if (prev != NULL)
+        {
+            prev->next = next;
+        }
+        if (next != NULL)
+        {
+            next->prev = prev;
+        }
+        // If the evicted entry was the head of some linked list,
+        // choose it's next pointer to be the new head.
+        void *coll_base = lowfat_base(cache_entry->ptr);
+        uint64_t coll_base_hash = EFFECTIVE_CACHE_HASH(coll_base, coll_base);
+        EFFECTIVE_REGION_ENTRY *coll_base_entry =
+            &effective_regions[coll_base_hash & EFFECTIVE_CACHE_MASK];
+        if (coll_base_entry->head == cache_entry)
+        {
+            coll_base_entry->head = next;
+        }
+    }
+
+    // Insert cache entry
+    cache_entry->is_used = true;
+    cache_entry->is_invalid = is_invalid;
+    cache_entry->ptr = ptr;
+    cache_entry->u = u;
+    cache_entry->bounds = bounds;
+
+    // Maintain the base pointer's linked list
+    if (base_entry->head != NULL)
+    {
+        base_entry->head->prev = cache_entry;
+    }
+    cache_entry->prev = NULL;
+    cache_entry->next = base_entry->head;
+    base_entry->head = cache_entry;
+}
+
+/*
+ * Invalidate a cache entry, and all other entries that share the same base
+ * pointer. This could happen due to a base pointer hash collision, or when
+ * we call free()
+ */
+void effective_cache_invalidate(EFFECTIVE_CACHE_ENTRY *entry)
+{
+    for (EFFECTIVE_CACHE_ENTRY *curr = entry; curr != NULL; )
+    {
+        EFFECTIVE_DEBUG("invalidating (%p, %p)\n", curr->ptr, curr->u);
+        EFFECTIVE_CACHE_ENTRY *next = curr->next;
+        curr->is_used = false;
+        curr->prev = NULL;
+        curr->next = NULL;
+        curr = next;
+    }
 }
 
 /*

@@ -246,16 +246,35 @@ extern void effective_dump(const void *ptr);
 #define EFFECTIVE_CACHE_MASK        (EFFECTIVE_CACHE_SIZE - 1)
 #define EFFECTIVE_CACHE_HASH(h1, h2)                                        \
     ((uint64_t)__builtin_ia32_crc32di((intptr_t)(h1), (intptr_t)(h2)))
-EFFECTIVE_BOUNDS effective_cache_invalid = {0, 0};
 
+// The prev/next pointers maintain an implicit linked-list among
+// entries within the same (lowfat) allocation region
 struct EFFECTIVE_CACHE_ENTRY
 {
-    bool in_use;
-    void *base;
-    EFFECTIVE_TYPE *u;
+    bool is_used;
+    bool is_invalid;
+    void *ptr;
+    const EFFECTIVE_TYPE *u;
+    struct EFFECTIVE_CACHE_ENTRY *prev;
+    struct EFFECTIVE_CACHE_ENTRY *next;
     EFFECTIVE_BOUNDS bounds;
 };
 typedef struct EFFECTIVE_CACHE_ENTRY EFFECTIVE_CACHE_ENTRY;
-EFFECTIVE_CACHE_ENTRY effective_type_check_cache[EFFECTIVE_CACHE_SIZE];
+EFFECTIVE_CACHE_ENTRY effective_cache[EFFECTIVE_CACHE_SIZE];
+extern size_t effective_cache_hit;
+extern size_t effective_cache_miss;
+
+// Maps the lowfat base pointer to the set of all cache entries
+// that occur in the allocation region, by storing the head node
+// of the linked-list
+struct EFFECTIVE_REGION_ENTRY {
+    void *base;
+    EFFECTIVE_CACHE_ENTRY *head;
+};
+typedef struct EFFECTIVE_REGION_ENTRY EFFECTIVE_REGION_ENTRY;
+EFFECTIVE_REGION_ENTRY effective_regions[EFFECTIVE_CACHE_SIZE];
+void effective_cache_insert(void *ptr, const EFFECTIVE_TYPE *u,
+    bool is_valid, EFFECTIVE_BOUNDS bounds);
+void effective_cache_invalidate(EFFECTIVE_CACHE_ENTRY *entry);
 
 #endif      /* __EFFECTIVE_H */

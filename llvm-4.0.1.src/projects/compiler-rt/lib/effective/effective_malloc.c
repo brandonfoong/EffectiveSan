@@ -145,6 +145,15 @@ void effective_free(void *ptr)
     }
     meta->type = NULL;
 
+    // Invalidate cache entries
+    uint64_t hash = EFFECTIVE_CACHE_HASH(ptr, ptr);
+    EFFECTIVE_REGION_ENTRY *entry =
+        &effective_regions[hash & EFFECTIVE_CACHE_MASK];
+    EFFECTIVE_DEBUG("invalidating entry = %p\n", entry);
+    effective_cache_invalidate(entry->head);
+    entry->base = NULL;
+    entry->head = NULL;
+
     lowfat_free(ptr);
 }
 
