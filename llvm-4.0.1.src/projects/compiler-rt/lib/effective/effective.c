@@ -72,6 +72,30 @@ EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_type_check(const void *ptr,
     }
     void *base = lowfat_base(ptr);
 
+    // If the pointer is a lowfat-allocated heap pointer,
+    // try looking it up in the cache
+    if (lowfat_is_heap_ptr(ptr))
+    {
+        uint64_t hash = EFFECTIVE_CACHE_HASH(ptr, ptr);
+        EFFECTIVE_CACHE_ENTRY *effective_cache_row =
+            effective_cache[hash & EFFECTIVE_CACHE_MASK];
+        for (size_t idx = 0; idx < EFFECTIVE_CACHE_LINE_SIZE; ++idx)
+        {
+            EFFECTIVE_CACHE_ENTRY *cache_entry =
+                &effective_cache_row[idx];
+            // Cache hit
+            // TODO: use bit manipulation to speed this up
+            if (cache_entry->is_used
+                && cache_entry->ptr == ptr
+                && cache_entry->u == u)
+            {
+                EFFECTIVE_COUNT(effective_cache_hit);
+                return cache_entry->bounds;
+            }
+            EFFECTIVE_COUNT(effective_cache_miss);
+        }
+    }
+
     // Get the object meta-data and calculate the allocation bounds.
     EFFECTIVE_META *meta = (EFFECTIVE_META *)base;
     base = (void *)(meta + 1);
@@ -112,6 +136,7 @@ EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_type_check(const void *ptr,
         EFFECTIVE_DEBUG("%zd..%zd (fast path)\n", bounds[0]-(intptr_t)ptr,
             bounds[1]-(intptr_t)ptr);
         EFFECTIVE_PROFILE_COUNT(effective_num_fast_type_checks);
+        effective_cache_insert(ptr, u, bounds);
         return bounds;
     }
 
@@ -135,6 +160,7 @@ match_found: {}
         EFFECTIVE_DEBUG("%zd..%zd [%p..%p] (slow path)\n",
             bounds[0]-ptrs[0], bounds[1]-ptrs[1], (void *)bounds[0],
             (void *)bounds[1]);
+        effective_cache_insert(ptr, u, bounds);
         return bounds;
     }
     else if (entry->hash != EFFECTIVE_ENTRY_EMPTY_HASH)
@@ -183,6 +209,73 @@ match_found: {}
     bounds = ptrs + EFFECTIVE_BOUNDS_NEG_DELTA_DELTA;
     EFFECTIVE_DEBUG("%zd..%zd (type error)\n", bounds[0], bounds[1]);
     return bounds;
+}
+
+void effective_cache_insert(const void *ptr,
+    const EFFECTIVE_TYPE *u, EFFECTIVE_BOUNDS bounds)
+{
+    // Much harder to keep track of stack pointers since
+    // stack deallocation is implicit.
+    // For convenience we only keep track of heap pointers.
+    // (And possibly globals...)
+    if (!lowfat_is_heap_ptr(ptr))
+    {
+        return;
+    }
+
+    uint64_t hash = EFFECTIVE_CACHE_HASH(ptr, ptr);
+    EFFECTIVE_CACHE_ENTRY *effective_cache_row =
+        effective_cache[hash & EFFECTIVE_CACHE_MASK];
+    EFFECTIVE_CACHE_ENTRY *evict_entry = &effective_cache_row[0];
+    bool is_inserted = false;
+    for (size_t idx = 0; idx < EFFECTIVE_CACHE_LINE_SIZE; ++idx)
+    {
+        EFFECTIVE_CACHE_ENTRY *entry =
+            &effective_cache_row[idx];
+        if (!entry->is_used)
+        {
+            // Insert cache entry
+            entry->is_used = 1;
+            entry->last_used = 1;
+            entry->ptr = ptr;
+            entry->u = u;
+            entry->bounds = bounds;
+            is_inserted = true;
+        }
+        if (evict_entry->last_used < entry->last_used)
+        {
+            evict_entry = entry;
+        }
+    }
+    if (!is_inserted)
+    {
+            // Insert cache entry
+            evict_entry->is_used = 1;
+            evict_entry->last_used = 1;
+            evict_entry->ptr = ptr;
+            evict_entry->u = u;
+            evict_entry->bounds = bounds;
+    }
+}
+
+/*
+ * When we free() a lowfat region, invalidate all entries where
+ * ptr falls within the lowfat region.
+ */
+void effective_cache_invalidate(const void *base)
+{
+    // TODO: try using hash(base) as the row index instead of hash(ptr)
+    for (size_t line_idx = 0; line_idx < EFFECTIVE_CACHE_NUM_LINES; ++line_idx)
+    {
+        for (size_t idx = 0; idx < EFFECTIVE_CACHE_LINE_SIZE; ++idx)
+        {
+            EFFECTIVE_CACHE_ENTRY *entry = &effective_cache[line_idx][idx];
+            if (lowfat_base(entry->ptr) == base)
+            {
+                entry->is_used = 0;
+            }
+        }
+    }
 }
 
 /*

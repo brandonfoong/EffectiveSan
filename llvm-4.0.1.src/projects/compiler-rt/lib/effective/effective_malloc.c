@@ -133,6 +133,9 @@ void effective_free(void *ptr)
     }
 
     ptr = lowfat_base(ptr);
+    // If ptr is a lowfat heap pointer, invalidate all cache
+    // entries associated with it.
+    effective_cache_invalidate(ptr);
     EFFECTIVE_META *meta = (EFFECTIVE_META *)ptr;
     if (meta->type == NULL)
     {
