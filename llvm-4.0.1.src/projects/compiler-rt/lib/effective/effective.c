@@ -79,6 +79,8 @@ EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_type_check(const void *ptr,
         uint64_t hash = EFFECTIVE_CACHE_HASH(ptr, ptr);
         EFFECTIVE_CACHE_ENTRY *effective_cache_row =
             effective_cache[hash & EFFECTIVE_CACHE_MASK];
+        bool is_cached = false;
+        EFFECTIVE_BOUNDS cached_bounds;
         for (size_t idx = 0; idx < EFFECTIVE_CACHE_LINE_SIZE; ++idx)
         {
             EFFECTIVE_CACHE_ENTRY *cache_entry =
@@ -86,11 +88,18 @@ EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_type_check(const void *ptr,
             // Cache hit
             // TODO: use bit manipulation to speed this up
             if (cache_entry->is_used
-                && cache_entry->ptr == ptr
-                && cache_entry->u == u)
+                & (cache_entry->ptr == ptr)
+                & (cache_entry->u == u))
             {
                 EFFECTIVE_COUNT(effective_cache_hit);
-                return cache_entry->bounds;
+                is_cached = true;
+                cached_bounds = cache_entry->bounds;
+                cache_entry->last_used = 0;
+            }
+            ++cache_entry->last_used;
+            if (is_cached)
+            {
+                return cached_bounds;
             }
             EFFECTIVE_COUNT(effective_cache_miss);
         }
@@ -249,7 +258,9 @@ void effective_cache_insert(const void *ptr,
     }
     if (!is_inserted)
     {
-            // Insert cache entry
+            // Evict oldest cache entry
+            EFFECTIVE_DEBUG("ptr %p -> cache line #%llu, evicting entry @ %p\n",
+                ptr, hash & EFFECTIVE_CACHE_MASK, evict_entry);
             evict_entry->is_used = 1;
             evict_entry->last_used = 1;
             evict_entry->ptr = ptr;
