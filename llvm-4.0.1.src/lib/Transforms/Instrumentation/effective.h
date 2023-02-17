@@ -242,16 +242,16 @@ extern void effective_dump(const void *ptr);
  * Cache for effective_type_check
  */
 
-#define EFFECTIVE_CACHE_NUM_LINES   (1 << 8)
-#define EFFECTIVE_CACHE_LINE_SIZE   (1 << 2)
+#define EFFECTIVE_CACHE_NUM_LINES   (1 << 9)
+#define EFFECTIVE_CACHE_LINE_SIZE   (1 << 1)
 #define EFFECTIVE_CACHE_MASK        (EFFECTIVE_CACHE_NUM_LINES - 1)
 #define EFFECTIVE_CACHE_HASH(h1, h2)                                        \
     ((uint64_t)__builtin_ia32_crc32di((intptr_t)(0), (intptr_t)(h2)))
 
 struct EFFECTIVE_CACHE_ENTRY
 {
-    uint64_t is_used:1;
     uint64_t last_used:63;
+    uint64_t is_used:1;
     const void *ptr;
     const EFFECTIVE_TYPE *u;
     EFFECTIVE_BOUNDS bounds;
