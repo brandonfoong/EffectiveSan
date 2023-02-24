@@ -196,6 +196,8 @@ extern size_t effective_num_bad_free_errors;
 /*
  * Type checking.
  */
+extern void effective_type_prefetch(const void *ptr,
+    const EFFECTIVE_TYPE *u);
 extern EFFECTIVE_BOUNDS effective_type_check(const void *ptr,
     const EFFECTIVE_TYPE *u);
 extern EFFECTIVE_BOUNDS effective_get_bounds(const void *ptr);

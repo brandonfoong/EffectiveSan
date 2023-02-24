@@ -45,6 +45,13 @@ EFFECTIVE_BOUNDS effective_bounds_narrow(EFFECTIVE_BOUNDS bounds1,
     return bounds3;
 }
 
+EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_type_prefetch(const void *ptr,
+    const EFFECTIVE_TYPE *u)
+{
+
+}
+
+
 /*
  * Do a type check and calculate the (sub-object) bounds.
  *
@@ -140,6 +147,7 @@ EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_type_check(const void *ptr,
         offset -= idx * t->size_fam;
         bounds += adjust;
         offset += t->offset_fam;
+        effective_type_prefetch();
     }
 
     EFFECTIVE_DEBUG("effective_type_check(%p, %s, %s (%+zd)) = ", ptr,
