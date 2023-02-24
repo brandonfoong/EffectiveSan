@@ -45,10 +45,108 @@ EFFECTIVE_BOUNDS effective_bounds_narrow(EFFECTIVE_BOUNDS bounds1,
     return bounds3;
 }
 
-EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_type_prefetch(const void *ptr,
+EFFECTIVE_HOT void effective_type_prefetch(const void *ptr,
     const EFFECTIVE_TYPE *u)
 {
+    size_t idx = lowfat_index(ptr);
+    void *base = lowfat_base(ptr);
 
+    // Get the object meta-data and calculate the allocation bounds.
+    EFFECTIVE_META *meta = (EFFECTIVE_META *)base;
+    base = (void *)(meta + 1);
+    const EFFECTIVE_TYPE *t = meta->type;
+    EFFECTIVE_BOUNDS bases = {(intptr_t)base, (intptr_t)base};
+    EFFECTIVE_BOUNDS sizes = {0, meta->size};
+    EFFECTIVE_BOUNDS bounds = bases + sizes;
+    if (EFFECTIVE_UNLIKELY(t == NULL))
+        t = &EFFECTIVE_TYPE_FREE;
+
+    // Calculate and normalize the `offset'. 
+    size_t offset = (uint8_t *)ptr - (uint8_t *)base;
+    if (offset >= t->size)
+    {
+        // The `offset' is >= sizeof(T).  Thus `ptr' may be pointing to an
+        // element in an array of T.  Alternatively, `ptr' may be pointing to
+        // a FAM at the end of T.  Either way, the offset is normalized here.
+        EFFECTIVE_BOUNDS adjust = {t->offset_fam, 0};
+        offset -= t->size;
+        unsigned __int128 tmp = (unsigned __int128)offset;
+        tmp *= (unsigned __int128)t->magic;
+        idx = (size_t)(tmp >> EFFECTIVE_RADIX);
+        offset -= idx * t->size_fam;
+        bounds += adjust;
+        offset += t->offset_fam;
+    }
+
+    EFFECTIVE_DEBUG("effective_type_prefetch(%p, %s, %s (%+zd)) = ", ptr,
+        u->info->name, t->info->name, (ssize_t)offset);
+
+    // SLOW PATH: Calculate the hash value for the layout lookup:
+    // Always take the slow path since offset >= sizeof(U) > 0
+    EFFECTIVE_PROFILE_COUNT(effective_num_slow_type_checks);
+    EFFECTIVE_BOUNDS ptrs = {(intptr_t)ptr, (intptr_t)ptr};
+    uint64_t hval = EFFECTIVE_HASH(t->hash2, u->hash, offset);
+
+    // Probe the layout.  The compiler pass ensures that the number of
+    // probes is limited for each query, i.e., that we will hit an
+    // EFFECTIVE_ENTRY_EMPTY_HASH within reasonable time.
+    idx = hval & t->mask;
+    register const EFFECTIVE_ENTRY *entry = t->layout + idx;
+
+    // Look for `u' directly:
+    if (entry->hash == hval)
+    {
+match_found: {}
+        EFFECTIVE_BOUNDS offsets = entry->bounds;
+        bounds = effective_bounds_narrow(ptrs + offsets, bounds);
+        EFFECTIVE_DEBUG("%zd..%zd [%p..%p] (slow path)\n",
+            bounds[0]-ptrs[0], bounds[1]-ptrs[1], (void *)bounds[0],
+            (void *)bounds[1]);
+        effective_cache_insert(ptr, u, bounds);
+        return;
+    }
+    else if (entry->hash != EFFECTIVE_ENTRY_EMPTY_HASH)
+    {
+        entry++;
+        while (true)
+        {
+            if (entry->hash == hval)
+                goto match_found;
+            if (entry->hash == EFFECTIVE_ENTRY_EMPTY_HASH)
+                break;
+            entry++;
+        }
+    }
+
+    // Search for a coercion of `u', e.g. from (T *) to (void *):
+    hval = EFFECTIVE_HASH(t->hash2, u->next, offset);
+    idx = hval & t->mask;
+    entry = t->layout + idx;
+    while (true)
+    {
+        if (entry->hash == hval)
+            goto match_found;
+        if (entry->hash == EFFECTIVE_ENTRY_EMPTY_HASH)
+            break;
+        entry++;
+    }
+
+    // Search for (char []):
+    hval = EFFECTIVE_HASH(t->hash2, EFFECTIVE_TYPE_INT8.hash, offset);
+    idx = hval & t->mask;
+    entry = t->layout + idx;
+    while (true)
+    {
+        if (entry->hash == hval)
+            goto match_found;
+        if (entry->hash == EFFECTIVE_ENTRY_EMPTY_HASH)
+            break;
+        entry++;
+    }
+
+    // The probe failed; this must be a type-error. We do not report a type
+    // error, or insert a new entry into the cache since the pointer was never
+    // accesed.
 }
 
 
@@ -80,7 +178,7 @@ EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_type_check(const void *ptr,
     void *base = lowfat_base(ptr);
 
     // If the pointer is a lowfat-allocated heap pointer,
-    // try looking it up in the cache
+    // try looking it up in the cache.
     if (lowfat_is_heap_ptr(ptr))
     {
         uint64_t hash = EFFECTIVE_CACHE_HASH(ptr, ptr);
@@ -147,7 +245,6 @@ EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_type_check(const void *ptr,
         offset -= idx * t->size_fam;
         bounds += adjust;
         offset += t->offset_fam;
-        effective_type_prefetch();
     }
 
     EFFECTIVE_DEBUG("effective_type_check(%p, %s, %s (%+zd)) = ", ptr,
@@ -164,6 +261,15 @@ EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_type_check(const void *ptr,
             bounds[1]-(intptr_t)ptr);
         EFFECTIVE_PROFILE_COUNT(effective_num_fast_type_checks);
         effective_cache_insert(ptr, u, bounds);
+
+        // We assume that we are accessing ((U *)ptr)[0], and try to prefetch
+        // the bounds entry for ((U *)ptr)[1], as long as it falls within the
+        // allocation bounds
+        if (lowfat_is_heap_ptr(ptr)
+            & ((uintptr_t)ptr + 2 * u->size <= (uintptr_t)base + meta->size))
+        {
+            effective_type_prefetch((void *)((uintptr_t)ptr + u->size), u);
+        }
         return bounds;
     }
 
@@ -188,6 +294,15 @@ match_found: {}
             bounds[0]-ptrs[0], bounds[1]-ptrs[1], (void *)bounds[0],
             (void *)bounds[1]);
         effective_cache_insert(ptr, u, bounds);
+
+        // We assume that we are accessing ((U *)ptr)[0], and try to prefetch
+        // the bounds entry for ((U *)ptr)[1], as long as it falls within the
+        // allocation bounds
+        if (lowfat_is_heap_ptr(ptr)
+            & ((uintptr_t)ptr + 2 * u->size <= (uintptr_t)base + meta->size))
+        {
+            effective_type_prefetch((void *)((uintptr_t)ptr + u->size), u);
+        }
         return bounds;
     }
     else if (entry->hash != EFFECTIVE_ENTRY_EMPTY_HASH)
@@ -255,7 +370,7 @@ void effective_cache_insert(const void *ptr,
         effective_cache[hash & EFFECTIVE_CACHE_MASK];
     EFFECTIVE_CACHE_ENTRY *evict_entry = &effective_cache_line[0];
     bool is_inserted = false;
-    for (size_t idx = 0; idx < EFFECTIVE_CACHE_LINE_SIZE & !is_inserted; ++idx)
+    for (size_t idx = 0; (idx < EFFECTIVE_CACHE_LINE_SIZE) & !is_inserted; ++idx)
     {
         EFFECTIVE_CACHE_ENTRY *entry =
             &effective_cache_line[idx];
