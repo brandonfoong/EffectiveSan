@@ -81,6 +81,7 @@ EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_type_check(const void *ptr,
             effective_cache[hash & EFFECTIVE_CACHE_MASK];
         bool is_cached = false;
         EFFECTIVE_BOUNDS cached_bounds;
+        size_t num_used = 0;
         for (size_t idx = 0; idx < EFFECTIVE_CACHE_LINE_SIZE; ++idx)
         {
             EFFECTIVE_CACHE_ENTRY *cache_entry =
@@ -101,12 +102,17 @@ EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_type_check(const void *ptr,
                 cached_bounds = cache_entry->bounds;
             }
             ++cache_entry->last_used;
+            num_used += cache_entry->is_used;
         }
         if (is_cached)
         {
             return cached_bounds;
         }
         EFFECTIVE_COUNT(effective_cache_miss);
+        if (num_used != EFFECTIVE_CACHE_LINE_SIZE)
+        {
+            EFFECTIVE_COUNT(effective_cache_cold_miss);
+        }
     }
 
     // Get the object meta-data and calculate the allocation bounds.

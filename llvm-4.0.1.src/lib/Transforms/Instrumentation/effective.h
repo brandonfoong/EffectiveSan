@@ -260,6 +260,7 @@ typedef struct EFFECTIVE_CACHE_ENTRY EFFECTIVE_CACHE_ENTRY;
 EFFECTIVE_CACHE_ENTRY effective_cache[EFFECTIVE_CACHE_NUM_LINES][EFFECTIVE_CACHE_LINE_SIZE];
 extern size_t effective_cache_hit;
 extern size_t effective_cache_miss;
+extern size_t effective_cache_cold_miss;
 
 void effective_cache_insert(const void *ptr,
     const EFFECTIVE_TYPE *u, EFFECTIVE_BOUNDS bounds);

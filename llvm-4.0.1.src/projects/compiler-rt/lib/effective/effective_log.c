@@ -282,6 +282,7 @@ static size_t effective_max_errs = SIZE_MAX;
 
 size_t effective_cache_hit = 0;
 size_t effective_cache_miss = 0;
+size_t effective_cache_cold_miss = 0;
 
 /*
  * Signal handling.
@@ -947,8 +948,10 @@ static EFFECTIVE_DESTRUCTOR(12399) void effective_report(void)
         fprintf(stderr, "memory (KB)    = %lu\n", m);
     }
     // Print cache status
-    fprintf(stderr, "cache hits     = %zu, cache misses = %zu\n",
-        effective_cache_hit, effective_cache_miss);
+    fprintf(stderr, "cache hits     = %zu, "
+        "cache misses = %zu, "
+        "cold misses = %zu\n",
+        effective_cache_hit, effective_cache_miss, effective_cache_cold_miss);
     fprintf(stderr, "--------------------------------------------------\n");
     fflush(stderr);
 
