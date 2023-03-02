@@ -244,8 +244,8 @@ extern void effective_dump(const void *ptr);
  * Cache for effective_type_check
  */
 
-#define EFFECTIVE_CACHE_NUM_LINES   (1 << 9)
-#define EFFECTIVE_CACHE_LINE_SIZE   (1 << 1)
+#define EFFECTIVE_CACHE_NUM_LINES   (1 << 7)
+#define EFFECTIVE_CACHE_LINE_SIZE   (1 << 3)
 #define EFFECTIVE_CACHE_MASK        (EFFECTIVE_CACHE_NUM_LINES - 1)
 #define EFFECTIVE_CACHE_HASH(h1, h2)                                        \
     ((uint64_t)__builtin_ia32_crc32di((intptr_t)(0), (intptr_t)(h2)))

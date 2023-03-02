@@ -48,6 +48,24 @@ EFFECTIVE_BOUNDS effective_bounds_narrow(EFFECTIVE_BOUNDS bounds1,
 EFFECTIVE_HOT void effective_type_prefetch(const void *ptr,
     const EFFECTIVE_TYPE *u)
 {
+    uint64_t hash = EFFECTIVE_CACHE_HASH(ptr, ptr);
+    EFFECTIVE_CACHE_ENTRY *effective_cache_line =
+        effective_cache[hash & EFFECTIVE_CACHE_MASK];
+    size_t num_used = 0;
+    for (size_t idx = 0; idx < EFFECTIVE_CACHE_LINE_SIZE; ++idx)
+    {
+        EFFECTIVE_CACHE_ENTRY *cache_entry =
+            &effective_cache_line[idx];
+        // Entry already exists, skip
+        // TODO: use bit manipulation to speed this up
+        if (cache_entry->is_used
+            & (cache_entry->ptr == ptr)
+            & (cache_entry->u == u))
+        {
+            return;
+        }
+    }
+
     size_t idx = lowfat_index(ptr);
     void *base = lowfat_base(ptr);
 
@@ -265,11 +283,11 @@ EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_type_check(const void *ptr,
         // We assume that we are accessing ((U *)ptr)[0], and try to prefetch
         // the bounds entry for ((U *)ptr)[1], as long as it falls within the
         // allocation bounds
-        if (lowfat_is_heap_ptr(ptr)
-            & ((uintptr_t)ptr + 2 * u->size <= (uintptr_t)base + meta->size))
-        {
-            effective_type_prefetch((void *)((uintptr_t)ptr + u->size), u);
-        }
+        // if (lowfat_is_heap_ptr(ptr)
+        //     & ((uintptr_t)ptr + 2 * u->size <= (uintptr_t)base + meta->size))
+        // {
+        //     effective_type_prefetch((void *)((uintptr_t)ptr + u->size), u);
+        // }
         return bounds;
     }
 
