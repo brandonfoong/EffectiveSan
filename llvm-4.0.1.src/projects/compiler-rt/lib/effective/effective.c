@@ -126,24 +126,20 @@ EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_type_check(const void *ptr,
     // probes is limited for each query, i.e., that we will hit an
     // EFFECTIVE_ENTRY_EMPTY_HASH within reasonable time.
 
-    // OPTIMIZATION: If AVX2 instructions are enabled, use those.
-    // We assume that SSE2 instructions are available, since the build
-    // script already checks for them.
-#if defined __AVX__ && defined __AVX2__ && \
-    defined __AVX512F__ && defined __AVX512VL__ 
+    // OPTIMIZATION: If AVX512 instructions are enabled, use those.
+#if defined __AVX__ && defined __AVX512F__
     idx = hval & t->mask;
     register const EFFECTIVE_ENTRY *entry = t->layout + idx;
 
-    size_t stride_len = 4;
+    size_t stride_len = 8;
     __mmask8 _match;
-    __m128i  _vindex = _mm_set_epi32(12, 8, 4, 0);
-    __m256i _hval = _mm256_set1_epi64x(hval);
-    __m256i _empty = _mm256_set1_epi64x(EFFECTIVE_ENTRY_EMPTY_HASH);
-    __m256i _entries = _mm256_i32gather_epi64(
-        (long long int const *)entry, _vindex, sizeof(uint64_t));
+    __m256i  _vindex = _mm256_set_epi32(28, 24, 20, 16, 12, 8, 4, 0);
+    __m512i _hval = _mm512_set1_epi64(hval);
+    __m512i _empty = _mm512_set1_epi64(EFFECTIVE_ENTRY_EMPTY_HASH);
+    __m512i _entries = _mm512_i32gather_epi64(_vindex, entry, sizeof(uint64_t));
 
     // Look for `u' directly:
-    if ((_match = _mm256_cmpeq_epu64_mask(_entries, _hval)))
+    if ((_match = _mm512_cmpeq_epu64_mask(_entries, _hval)))
     {
 match_found: {}
         int idx = __builtin_ctz(_match);
@@ -154,20 +150,19 @@ match_found: {}
             (void *)bounds[1]);
         return bounds;
     }
-    else if (!_mm256_cmpeq_epu64_mask(_entries, _empty))
+    else if (!_mm512_cmpeq_epu64_mask(_entries, _empty))
     {
         entry += stride_len;
-        _entries = _mm256_i32gather_epi64(
-            (long long int const *)entry, _vindex, sizeof(uint64_t));
+        _entries = _mm512_i32gather_epi64(_vindex, entry, sizeof(uint64_t));
         while (true)
         {
-            if ((_match = _mm256_cmpeq_epu64_mask(_entries, _hval)))
+            if ((_match = _mm512_cmpeq_epu64_mask(_entries, _hval)))
                 goto match_found;
-            if (_mm256_cmpeq_epu64_mask(_entries, _empty))
+            if (_mm512_cmpeq_epu64_mask(_entries, _empty))
                 break;
             entry += stride_len;
-            _entries = _mm256_i32gather_epi64(
-                (long long int const *)entry, _vindex, sizeof(uint64_t));
+            _entries = _mm512_i32gather_epi64(
+                _vindex, entry, sizeof(uint64_t));
         }
     }
 
@@ -176,18 +171,17 @@ match_found: {}
     idx = hval & t->mask;
     entry = t->layout + idx;
 
-    _hval = _mm256_set1_epi64x(hval);
-    _entries = _mm256_i32gather_epi64(
-        (long long int const *)entry, _vindex, sizeof(uint64_t));
+    _hval = _mm512_set1_epi64(hval);
+    _entries = _mm512_i32gather_epi64(_vindex, entry, sizeof(uint64_t));
     while (true)
     {
-        if ((_match = _mm256_cmpeq_epu64_mask(_entries, _hval)))
+        if ((_match = _mm512_cmpeq_epu64_mask(_entries, _hval)))
             goto match_found;
-        if (_mm256_cmpeq_epu64_mask(_entries, _empty))
+        if (_mm512_cmpeq_epu64_mask(_entries, _empty))
             break;
         entry += stride_len;
-        _entries = _mm256_i32gather_epi64(
-            (long long int const *)entry, _vindex, sizeof(uint64_t));
+        _entries = _mm512_i32gather_epi64(
+            _vindex, entry, sizeof(uint64_t));
     }
 
     // Search for (char []):
@@ -195,18 +189,16 @@ match_found: {}
     idx = hval & t->mask;
     entry = t->layout + idx;
 
-    _hval = _mm256_set1_epi64x(hval);
-    _entries = _mm256_i32gather_epi64(
-        (long long int const *)entry, _vindex, sizeof(uint64_t));
+    _hval = _mm512_set1_epi64(hval);
+    _entries = _mm512_i32gather_epi64(_vindex, entry, sizeof(uint64_t));
     while (true)
     {
-        if ((_match = _mm256_cmpeq_epu64_mask(_entries, _hval)))
+        if ((_match = _mm512_cmpeq_epu64_mask(_entries, _hval)))
             goto match_found;
-        if (_mm256_cmpeq_epu64_mask(_entries, _empty))
+        if (_mm512_cmpeq_epu64_mask(_entries, _empty))
             break;
         entry += stride_len;
-        _entries = _mm256_i32gather_epi64(
-            (long long int const *)entry, _vindex, sizeof(uint64_t));
+        _entries = _mm512_i32gather_epi64(_vindex, entry, sizeof(uint64_t));
     }
 #else
     idx = hval & t->mask;

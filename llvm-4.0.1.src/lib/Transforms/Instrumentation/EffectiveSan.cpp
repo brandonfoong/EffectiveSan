@@ -2211,8 +2211,8 @@ static const TypeEntry &compileType(llvm::Module &M, llvm::DIType *Ty,
     }
 
     // Allocate an additional 3 empty entries, which allows us to safely
-    // probe the hash table with AVX2 instructions, if available.
-    size_t additionalLen = 3;
+    // probe the hash table with AVX512 instructions, if available.
+    size_t additionalLen = 7;
     llvm::StructType *MetaTy = makeTypeMetaType(M, finalLen + additionalLen);
     llvm::GlobalVariable *MetaGV = new llvm::GlobalVariable(M, MetaTy, true,
         llvm::GlobalValue::WeakAnyLinkage, 0, metaName.str());
