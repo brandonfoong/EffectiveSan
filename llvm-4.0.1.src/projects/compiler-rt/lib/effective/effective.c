@@ -22,6 +22,8 @@
 #include <string.h>
 #include <time.h>
 
+#include <immintrin.h>
+
 #include "lowfat.h"
 #include "effective.h"
 
@@ -115,14 +117,6 @@ EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_type_check(const void *ptr,
         return bounds;
     }
 
-    // OPTIMIZATION: If AVX2 instructions are enabled, use those.
-    // We assume that SSE2 instructions are available, since the build
-    // script already checks for it.
-#if defined __AVX__ && defined __AVX2__ && \
-    defined __AVX512F__ && defined __AVX512VL__
-#define USE_AVX_HASH_LOOKUP
-#endif
-
     // SLOW PATH: Calculate the hash value for the layout lookup:
     EFFECTIVE_PROFILE_COUNT(effective_num_slow_type_checks);
     EFFECTIVE_BOUNDS ptrs = {(intptr_t)ptr, (intptr_t)ptr};
@@ -131,15 +125,95 @@ EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_type_check(const void *ptr,
     // Probe the layout.  The compiler pass ensures that the number of
     // probes is limited for each query, i.e., that we will hit an
     // EFFECTIVE_ENTRY_EMPTY_HASH within reasonable time.
+
+    // OPTIMIZATION: If AVX2 instructions are enabled, use those.
+    // We assume that SSE2 instructions are available, since the build
+    // script already checks for them.
+#if defined __AVX__ && defined __AVX2__ && \
+    defined __AVX512F__ && defined __AVX512VL__ 
+    idx = hval & t->mask;
+    register const EFFECTIVE_ENTRY *entry = t->layout + idx;
+
+    size_t stride_len = 4;
+    __mmask8 _match;
+    __m128i  _vindex = _mm_set_epi32(12, 8, 4, 0);
+    __m256i _hval = _mm256_set1_epi64x(hval);
+    __m256i _empty = _mm256_set1_epi64x(EFFECTIVE_ENTRY_EMPTY_HASH);
+    __m256i _entries = _mm256_i32gather_epi64(
+        (long long int const *)entry, _vindex, sizeof(uint64_t));
+
+    // Look for `u' directly:
+    if ((_match = _mm256_cmpeq_epu64_mask(_entries, _hval)))
+    {
+match_found: {}
+        int idx = __builtin_ctz(_match);
+        EFFECTIVE_BOUNDS offsets = entry[idx].bounds;
+        bounds = effective_bounds_narrow(ptrs + offsets, bounds);
+        EFFECTIVE_DEBUG("%zd..%zd [%p..%p] (slow path)\n",
+            bounds[0]-ptrs[0], bounds[1]-ptrs[1], (void *)bounds[0],
+            (void *)bounds[1]);
+        return bounds;
+    }
+    else if (!_mm256_cmpeq_epu64_mask(_entries, _empty))
+    {
+        entry += stride_len;
+        _entries = _mm256_i32gather_epi64(
+            (long long int const *)entry, _vindex, sizeof(uint64_t));
+        while (true)
+        {
+            if ((_match = _mm256_cmpeq_epu64_mask(_entries, _hval)))
+                goto match_found;
+            if (_mm256_cmpeq_epu64_mask(_entries, _empty))
+                break;
+            entry += stride_len;
+            _entries = _mm256_i32gather_epi64(
+                (long long int const *)entry, _vindex, sizeof(uint64_t));
+        }
+    }
+
+    // Search for a coercion of `u', e.g. from (T *) to (void *):
+    hval = EFFECTIVE_HASH(t->hash2, u->next, offset);
+    idx = hval & t->mask;
+    entry = t->layout + idx;
+
+    _hval = _mm256_set1_epi64x(hval);
+    _entries = _mm256_i32gather_epi64(
+        (long long int const *)entry, _vindex, sizeof(uint64_t));
+    while (true)
+    {
+        if ((_match = _mm256_cmpeq_epu64_mask(_entries, _hval)))
+            goto match_found;
+        if (_mm256_cmpeq_epu64_mask(_entries, _empty))
+            break;
+        entry += stride_len;
+        _entries = _mm256_i32gather_epi64(
+            (long long int const *)entry, _vindex, sizeof(uint64_t));
+    }
+
+    // Search for (char []):
+    hval = EFFECTIVE_HASH(t->hash2, EFFECTIVE_TYPE_INT8.hash, offset);
+    idx = hval & t->mask;
+    entry = t->layout + idx;
+
+    _hval = _mm256_set1_epi64x(hval);
+    _entries = _mm256_i32gather_epi64(
+        (long long int const *)entry, _vindex, sizeof(uint64_t));
+    while (true)
+    {
+        if ((_match = _mm256_cmpeq_epu64_mask(_entries, _hval)))
+            goto match_found;
+        if (_mm256_cmpeq_epu64_mask(_entries, _empty))
+            break;
+        entry += stride_len;
+        _entries = _mm256_i32gather_epi64(
+            (long long int const *)entry, _vindex, sizeof(uint64_t));
+    }
+#else
     idx = hval & t->mask;
     register const EFFECTIVE_ENTRY *entry = t->layout + idx;
 
     // Look for `u' directly:
-#ifdef USE_AVX_HASH_LOOKUP
     if (entry->hash == hval)
-#else
-    if (entry->hash == hval)
-#endif
     {
 match_found: {}
         EFFECTIVE_BOUNDS offsets = entry->bounds;
@@ -187,9 +261,6 @@ match_found: {}
             break;
         entry++;
     }
-
-#ifdef USE_AVX_HASH_LOOKUP
-#undef USE_AVX_HASH_LOOKUP
 #endif
 
     // The probe failed; this must be a type-error.  Handle it here.
