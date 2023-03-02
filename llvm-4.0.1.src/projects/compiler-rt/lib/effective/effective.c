@@ -115,6 +115,14 @@ EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_type_check(const void *ptr,
         return bounds;
     }
 
+    // OPTIMIZATION: If AVX2 instructions are enabled, use those.
+    // We assume that SSE2 instructions are available, since the build
+    // script already checks for it.
+#if defined __AVX__ && defined __AVX2__ && \
+    defined __AVX512F__ && defined __AVX512VL__
+#define USE_AVX_HASH_LOOKUP
+#endif
+
     // SLOW PATH: Calculate the hash value for the layout lookup:
     EFFECTIVE_PROFILE_COUNT(effective_num_slow_type_checks);
     EFFECTIVE_BOUNDS ptrs = {(intptr_t)ptr, (intptr_t)ptr};
@@ -127,7 +135,11 @@ EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_type_check(const void *ptr,
     register const EFFECTIVE_ENTRY *entry = t->layout + idx;
 
     // Look for `u' directly:
+#ifdef USE_AVX_HASH_LOOKUP
     if (entry->hash == hval)
+#else
+    if (entry->hash == hval)
+#endif
     {
 match_found: {}
         EFFECTIVE_BOUNDS offsets = entry->bounds;
@@ -175,6 +187,10 @@ match_found: {}
             break;
         entry++;
     }
+
+#ifdef USE_AVX_HASH_LOOKUP
+#undef USE_AVX_HASH_LOOKUP
+#endif
 
     // The probe failed; this must be a type-error.  Handle it here.
     // Note: we use `ptrs[0]' inplace of `ptr' to reduce register pressure.

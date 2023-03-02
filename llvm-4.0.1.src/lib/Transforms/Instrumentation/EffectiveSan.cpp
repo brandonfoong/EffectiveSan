@@ -2210,7 +2210,10 @@ static const TypeEntry &compileType(llvm::Module &M, llvm::DIType *Ty,
         hval2 = getNextLayoutHash(hash, i, hval2, layoutLen);
     }
 
-    llvm::StructType *MetaTy = makeTypeMetaType(M, finalLen);
+    // Allocate an additional 3 empty entries, which allows us to safely
+    // probe the hash table with AVX2 instructions, if available.
+    size_t additionalLen = 3;
+    llvm::StructType *MetaTy = makeTypeMetaType(M, finalLen + additionalLen);
     llvm::GlobalVariable *MetaGV = new llvm::GlobalVariable(M, MetaTy, true,
         llvm::GlobalValue::WeakAnyLinkage, 0, metaName.str());
     llvm::Constant *Meta = llvm::ConstantExpr::getBitCast(MetaGV,
