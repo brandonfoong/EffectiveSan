@@ -51,7 +51,6 @@ EFFECTIVE_HOT void effective_type_prefetch(const void *ptr,
     uint64_t hash = EFFECTIVE_CACHE_HASH(ptr, ptr);
     EFFECTIVE_CACHE_ENTRY *effective_cache_line =
         effective_cache[hash & EFFECTIVE_CACHE_MASK];
-    size_t num_used = 0;
     for (size_t idx = 0; idx < EFFECTIVE_CACHE_LINE_SIZE; ++idx)
     {
         EFFECTIVE_CACHE_ENTRY *cache_entry =
@@ -232,6 +231,12 @@ EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_type_check(const void *ptr,
             return cached_bounds;
         }
         EFFECTIVE_COUNT(effective_cache_miss);
+        size_t lower_bound = 0;
+        size_t upper_bound = 1000000;
+        if (lower_bound <= effective_cache_miss && effective_cache_miss < upper_bound)
+        {
+            fprintf(stderr, "Cache miss (ptr = %p, type = %s)\n", ptr, u->info->name);
+        }
         if (num_used != EFFECTIVE_CACHE_LINE_SIZE)
         {
             EFFECTIVE_COUNT(effective_cache_cold_miss);
