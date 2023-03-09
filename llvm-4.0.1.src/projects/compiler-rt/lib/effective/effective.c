@@ -118,6 +118,10 @@ EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_type_check(const void *ptr,
     // SLOW PATH: Calculate the hash value for the layout lookup:
     EFFECTIVE_PROFILE_COUNT(effective_num_slow_type_checks);
     EFFECTIVE_BOUNDS ptrs = {(intptr_t)ptr, (intptr_t)ptr};
+    ptrs += EFFECTIVE_BOUNDS_NEG_DELTA_DELTA;
+    return ptrs;
+#if 0
+    EFFECTIVE_BOUNDS ptrs = {(intptr_t)ptr, (intptr_t)ptr};
     uint64_t hval = EFFECTIVE_HASH(t->hash2, u->hash, offset);
 
     // Probe the layout.  The compiler pass ensures that the number of
@@ -183,6 +187,7 @@ match_found: {}
     bounds = ptrs + EFFECTIVE_BOUNDS_NEG_DELTA_DELTA;
     EFFECTIVE_DEBUG("%zd..%zd (type error)\n", bounds[0], bounds[1]);
     return bounds;
+#endif
 }
 
 /*
