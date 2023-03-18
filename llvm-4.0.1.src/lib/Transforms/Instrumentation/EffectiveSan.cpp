@@ -292,6 +292,7 @@ static llvm::DIType *Int32Ty         = nullptr;
 static llvm::DIType *Int64Ty         = nullptr;
 static llvm::DIType *Int128Ty        = nullptr;
 static llvm::DIType *Int8PtrTy       = nullptr;
+static llvm::Constant *NegDeltaDelta = nullptr;
 
 static llvm::Module *Module = nullptr;  // Used by normalizePointerType()
                                         // (not ideal but too messy to fix).
@@ -2686,10 +2687,20 @@ static llvm::Value *instrumentTypeCheck(llvm::Module &M, llvm::Function &F,
     }
     else
     {
+        llvm::Value *PtrCast = builder.CreatePtrToInt(Ptr1,
+            builder.getInt64Ty());
+        llvm::Value *Undef = llvm::UndefValue::get(BoundsTy);
+        Bounds = builder.CreateInsertElement(Undef, PtrCast,
+            builder.getInt32(0));
+        Bounds = builder.CreateInsertElement(Bounds, PtrCast,
+            builder.getInt32(1));
+        Bounds = builder.CreateAdd(Bounds, NegDeltaDelta);
+#if 0
         llvm::Constant *TypeCheck = M.getOrInsertFunction(
             "effective_type_check", BoundsTy, builder.getInt8PtrTy(),
             TypeTy->getPointerTo(), nullptr);
         Bounds = builder.CreateCall(TypeCheck, {Ptr1, Meta});
+#endif
     }
     CheckEntry Entry = {Bounds, nullptr, 0};
     cInfo.insert(std::make_pair(Ptr, Entry));
@@ -4427,6 +4438,9 @@ struct EffectiveSan : public llvm::ModulePass
         BoundsNonFat = llvm::ConstantVector::get({
             llvm::ConstantInt::get(llvm::Type::getInt64Ty(Cxt), 0),
             llvm::ConstantInt::get(llvm::Type::getInt64Ty(Cxt), INTPTR_MAX)});
+        NegDeltaDelta = llvm::ConstantVector::get({
+            llvm::ConstantInt::get(llvm::Type::getInt64Ty(Cxt), -EFFECTIVE_DELTA),
+            llvm::ConstantInt::get(llvm::Type::getInt64Ty(Cxt), EFFECTIVE_DELTA)});
 
         /*
          * Main instrumentation loop:
