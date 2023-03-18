@@ -78,10 +78,14 @@ EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_type_check(const void *ptr,
     const EFFECTIVE_TYPE *t = meta->type;
     EFFECTIVE_BOUNDS bases = {(intptr_t)base, (intptr_t)base};
     EFFECTIVE_BOUNDS sizes = {0, meta->size};
-    EFFECTIVE_BOUNDS bounds = bases + sizes;
+    volatile EFFECTIVE_BOUNDS bounds = bases + sizes;
     if (EFFECTIVE_UNLIKELY(t == NULL))
         t = &EFFECTIVE_TYPE_FREE;
 
+    EFFECTIVE_BOUNDS ptrs = {(intptr_t)ptr, (intptr_t)ptr};
+    ptrs += EFFECTIVE_BOUNDS_NEG_DELTA_DELTA;
+    return ptrs;
+#if 0
     // Calculate and normalize the `offset'. 
     size_t offset = (uint8_t *)ptr - (uint8_t *)base;
     if (offset >= t->size)
@@ -115,10 +119,6 @@ EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_type_check(const void *ptr,
         return bounds;
     }
 
-    EFFECTIVE_BOUNDS ptrs = {(intptr_t)ptr, (intptr_t)ptr};
-    ptrs += EFFECTIVE_BOUNDS_NEG_DELTA_DELTA;
-    return ptrs;
-#if 0
     // SLOW PATH: Calculate the hash value for the layout lookup:
     EFFECTIVE_PROFILE_COUNT(effective_num_slow_type_checks);
     EFFECTIVE_BOUNDS ptrs = {(intptr_t)ptr, (intptr_t)ptr};
