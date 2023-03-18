@@ -58,6 +58,10 @@ EFFECTIVE_BOUNDS effective_bounds_narrow(EFFECTIVE_BOUNDS bounds1,
 EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_type_check(const void *ptr,
     const EFFECTIVE_TYPE *u)
 {
+    EFFECTIVE_BOUNDS ptrs = {(intptr_t)ptr, (intptr_t)ptr};
+    ptrs += EFFECTIVE_BOUNDS_NEG_DELTA_DELTA;
+    return ptrs;
+#if 0
     size_t idx = lowfat_index(ptr);
     if (idx > EFFECTIVE_LOWFAT_NUM_REGIONS_LIMIT || _LOWFAT_MAGICS[idx] == 0)
     {
@@ -82,10 +86,6 @@ EFFECTIVE_HOT EFFECTIVE_BOUNDS effective_type_check(const void *ptr,
     if (EFFECTIVE_UNLIKELY(t == NULL))
         t = &EFFECTIVE_TYPE_FREE;
 
-    EFFECTIVE_BOUNDS ptrs = {(intptr_t)ptr, (intptr_t)ptr};
-    ptrs += EFFECTIVE_BOUNDS_NEG_DELTA_DELTA;
-    return ptrs;
-#if 0
     // Calculate and normalize the `offset'. 
     size_t offset = (uint8_t *)ptr - (uint8_t *)base;
     if (offset >= t->size)
