@@ -3462,6 +3462,8 @@ static EFFECTIVE_NOINLINE void instrumentBoundsCheck(llvm::Module &M,
     llvm::Function &F, const BoundsCheckEntry &Check, TypeInfo &tInfo,
     CheckInfo &cInfo, BoundsInfo &bInfo)
 {
+    return;
+#if 0
     if (Check.redundant)
         return;     // Check removed by optimizeBoundsChecks()
 
@@ -3515,6 +3517,7 @@ static EFFECTIVE_NOINLINE void instrumentBoundsCheck(llvm::Module &M,
             UB = Check.accessVarSize;
     }
     builder.CreateCall(BoundsCheck, {Entry.bounds, Ptr, LB, UB});
+#endif
 }
 
 /*****************************************************************************/
