@@ -2843,6 +2843,8 @@ static std::pair<intptr_t, intptr_t> calculateBoundsConstant(
 static llvm::Value *narrowBounds(llvm::Module &M, const InsertPoint &IP,
     llvm::Value *Ptr, const BoundsEntry &Entry)
 {
+    return Entry.bounds;
+#if 0
     if (Entry.lb == INTPTR_MIN && Entry.ub == INTPTR_MAX)
         return Entry.bounds;
     llvm::IRBuilder<> builder(IP.bb, IP.itr);
@@ -2870,6 +2872,7 @@ static llvm::Value *narrowBounds(llvm::Module &M, const InsertPoint &IP,
             {Entry.bounds, SubBounds});
         return Bounds;
     }
+#endif
 }
 
 /*
