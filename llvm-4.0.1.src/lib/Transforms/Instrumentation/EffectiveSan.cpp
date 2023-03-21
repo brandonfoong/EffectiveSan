@@ -2672,11 +2672,21 @@ static void getEscapePtrs(const llvm::DataLayout &DL, llvm::Instruction &I,
 static llvm::Value *instrumentTypeCheck(llvm::Module &M, llvm::Function &F,
     llvm::Value *Ptr, TypeInfo &tInfo, CheckInfo &cInfo, bool untyped = false)
 {
-    llvm::Constant *Meta = (untyped? nullptr: getDeclaredType(M, Ptr, tInfo));
+    // llvm::Constant *Meta = (untyped? nullptr: getDeclaredType(M, Ptr, tInfo));
     auto i = nextInsertPoint(F, Ptr);
     llvm::IRBuilder<> builder(i.bb, i.itr);
     llvm::Value *Bounds = nullptr;
     llvm::Value *Ptr1 = builder.CreateBitCast(Ptr, builder.getInt8PtrTy());
+    // inline [ptr, ptr] + [-delta, +delta] operation
+    llvm::Value *PtrCast = builder.CreatePtrToInt(Ptr1,
+        builder.getInt64Ty());
+    llvm::Value *Undef = llvm::UndefValue::get(BoundsTy);
+    Bounds = builder.CreateInsertElement(Undef, PtrCast,
+        builder.getInt32(0));
+    Bounds = builder.CreateInsertElement(Bounds, PtrCast,
+        builder.getInt32(1));
+    Bounds = builder.CreateAdd(Bounds, NegDeltaDelta);
+#if 0
     if (Meta == nullptr)
     {
         // If Meta==nullptr then the type is (char []).  Since this matches
@@ -2687,21 +2697,12 @@ static llvm::Value *instrumentTypeCheck(llvm::Module &M, llvm::Function &F,
     }
     else
     {
-        llvm::Value *PtrCast = builder.CreatePtrToInt(Ptr1,
-            builder.getInt64Ty());
-        llvm::Value *Undef = llvm::UndefValue::get(BoundsTy);
-        Bounds = builder.CreateInsertElement(Undef, PtrCast,
-            builder.getInt32(0));
-        Bounds = builder.CreateInsertElement(Bounds, PtrCast,
-            builder.getInt32(1));
-        Bounds = builder.CreateAdd(Bounds, NegDeltaDelta);
-#if 0
         llvm::Constant *TypeCheck = M.getOrInsertFunction(
             "effective_type_check", BoundsTy, builder.getInt8PtrTy(),
             TypeTy->getPointerTo(), nullptr);
         Bounds = builder.CreateCall(TypeCheck, {Ptr1, Meta});
-#endif
     }
+#endif
     CheckEntry Entry = {Bounds, nullptr, 0};
     cInfo.insert(std::make_pair(Ptr, Entry));
     return Bounds;
@@ -4163,6 +4164,7 @@ static EFFECTIVE_NOINLINE void emitInstrumentationFunctions(llvm::Module &M)
     F = M.getFunction("effective_get_bounds");
     if (F != nullptr)
     {
+        EFFECTIVE_FATAL_ERROR("should not emit effective_get_bounds!");
         F->setDoesNotThrow();
         F->setDoesNotAccessMemory();
     }
